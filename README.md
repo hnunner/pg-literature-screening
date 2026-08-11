@@ -1,9 +1,21 @@
 # Pandemic Guidelines — automated full-text screening
 
-Screens papers against the review's five inclusion criteria using an LLM, and writes one auditable row per paper: a verdict on each criterion, the verbatim
-quote behind it, and a decision derived from those verdicts by rule.
+Screens papers against a review's five inclusion criteria using an LLM, writing
+one auditable row per paper: a verdict on each criterion, the verbatim quote
+behind it, and a decision derived from those verdicts by rule. Every judgement
+carries the text it was based on, so a human can check it quickly, and genuinely
+borderline papers come back `uncertain` rather than being forced.
 
-Every judgement carries the text it was based on so a human can check it quickly, and genuinely borderline papers come back `uncertain` rather than being forced.
+**What this repository is.** The instrument used for the screening reported in
+the paper, plus a record of how that screening went. It is not a way to
+reproduce our run. That run is non-deterministic, and it needs local PDFs for
+159 mostly paywalled papers we cannot redistribute. The screening output of
+record is in the data deposit, DOI `TODO`.
+
+Two things you can do here. Read `pgscreen/criteria.py` and `pgscreen/rubric.py`
+to see exactly what the model was asked and how a decision follows from its
+answers. Or point the tool at a corpus of your own, for which the Quick start
+below works as written.
 
 ---
 
@@ -16,8 +28,8 @@ pip install -r requirements.txt
 cp .env.example .env             # then add ANTHROPIC_API_KEY
 ```
 
-Export the collection from Zotero as CSV to `./data/articles-full-screen.csv`
-(see `data/how-to-csv.md`), then:
+Export a Zotero collection as CSV to `./data/articles-full-screen.csv` (see
+`data/how-to-csv.md`), or build the same columns by hand. Then:
 
 ```bash
 python full-screen.py --list-models    # what this run costs, per model
@@ -27,255 +39,193 @@ python full-screen.py --batch          # the whole collection, at half price
 python analyze.py results/articles-full-screen-results.csv
 ```
 
-**Use `--batch` for the full corpus.** It submits everything through the Batches API at half the token cost — ~$13.70 instead of ~$27.40 at list price, ~$9.20 on
-Sonnet's introductory rate. The trade is latency: results arrive when the batch completes (usually inside an hour, 24h ceiling) rather than streaming in. It
-prints a batch ID, so an interrupted collection resumes with`--resume-batch <id>`. For `--limit` spot checks, the default streaming path is
-more useful.
+**Use `--batch` for a full corpus.** It goes through the Batches API at half the
+token cost, trading latency: results arrive when the batch completes, usually
+inside an hour against a 24 hour ceiling. It prints a batch ID, so an interrupted
+collection resumes with `--resume-batch <id>`. For `--limit` spot checks the
+default streaming path is more useful.
 
-Runs are resumable either way: papers already screened successfully are skipped, so an interrupted run continues rather than restarting. `--fresh` starts over.
-Expect the odd transient API error across 159 papers — those are written as failed rows and picked up on a rerun, not lost.
+Runs are resumable either way. Papers already screened are skipped, `--fresh`
+starts over, and transient API errors are written as failed rows and picked up on
+a rerun rather than lost. Every run prices itself and asks before spending.
 
 ---
 
 ## Which model
 
-**Use `claude-sonnet-5`.** This is measured, not assumed.
+**Use `claude-sonnet-5`.** Measured, not assumed.
 
-On the current five-criterion rubric, over the same 20 papers:
+Over the same 20 papers, Sonnet returned 19 include and 1 exclude, the exclude
+being the agreed bibliometric-review case. Haiku 4.5 returned 17 include and 3
+exclude, all three false negatives, at roughly a third of the cost. Haiku fails
+papers on criterion 2 for "not itself developing or applying a model", which
+excludes exactly the reviews, editorials, and perspectives that criterion 5
+explicitly admits. Rubric `2026-07-28.6` hardened the wording against this, but
+the error ran in the costly direction, so Haiku is not recommended. Opus 5
+agreed with Sonnet at 90% exact on an earlier rubric at about 2.2 times the cost,
+which is not worth the difference here.
 
-|                  | Sonnet 5                                             | Haiku 4.5                          |
-| ---------------- | ---------------------------------------------------- | ---------------------------------- |
-| Decisions        | 19 include, 1 exclude                                | 17 include, 3 exclude              |
-| Correct?         | the 1 exclude is the agreed bibliometric-review case | all 3 excludes are false negatives |
-| Cost, 160 papers | ~$17.50 | ~$6.00                                     |                                    |
-
-Haiku fails papers on Criterion 2 for "not itself developing or applying a model" — which excludes exactly the reviews, editorials and perspectives that
-Criterion 5 explicitly admits. The rubric wording was hardened against this in `2026-07-28.6`, but Haiku's error was in the costly direction (dropping papers
-that belong), so it is not recommended.
-
-Opus 5 was compared earlier and agreed with Sonnet at 90% exact on the previous rubric, at roughly 2.2× the cost. It is not worth the difference here.
-
-Cost is driven by PDF pages at **~3,950 input tokens each** — measured against a real invoice, not estimated. `--list-models` prices any run before it starts,
-and every run asks for confirmation before spending.
+Cost is driven by PDF pages at roughly 3,950 input tokens each, calibrated
+against a real invoice rather than estimated.
 
 ---
 
 ## The instrument
 
-`pgscreen/criteria.py` holds the five protocol criteria verbatim. `pgscreen/rubric.py` holds the operational guidance for applying them, the quality-appraisal
-dimensions, and the JSON schema.
+`pgscreen/criteria.py` holds the five protocol criteria verbatim.
+`pgscreen/rubric.py` holds the operational guidance, the quality-appraisal
+dimensions, and the JSON schema. Three design decisions matter:
 
-Three design decisions matter:
-
-1. **One field per criterion.** The protocol has five criteria. The original
-   prompt scored *two*: criteria 4 and 5 were concatenated into a single
-   "Modeling Relevance" value and criteria 1 and 2 were absent entirely.
-   Collapsing distinct requirements into one score is what destroys
-   discriminatory power — a paper satisfying one half and failing the other
+1. **One field per criterion.** The original prompt scored two: criteria 4 and 5
+   were concatenated into a single "Modeling Relevance" value and criteria 1 and
+   2 were absent. Collapsing distinct requirements into one score destroys
+   discriminatory power, since a paper satisfying one half and failing the other
    lands mid-scale instead of failing.
-2. **Evidence before judgement.** Each criterion asks for a verbatim quote and
-   a one-line rationale *before* the verdict. Models generate JSON fields in
-   schema order, so this conditions the judgement on located text. In practice
-   this also caught a PDF that was a BMJ correction notice rather than the
-   article.
-3. **The decision is computed, not asked for.** `rubric.decide()` applies the
-   rule to the five verdicts. When the model was asked for the decision
-   directly it contradicted its own scores in 11 of 67 cases, always
-   permissively. The model's own call is still recorded as `Model Decision`
-   with a `Decision Mismatch` flag — where the two differ, a human should look.
+2. **Evidence before judgement.** Each criterion asks for a verbatim quote and a
+   one-line rationale *before* the verdict. Models generate JSON fields in schema
+   order, so this conditions the judgement on located text. It also caught a PDF
+   that was a BMJ correction notice rather than the article.
+3. **The decision is computed, not asked for.** `rubric.decide()` applies the rule
+   to the five verdicts. Asked for the decision directly, the model contradicted
+   its own scores in 11 of 67 cases, always permissively. Its call is still
+   recorded as `Model Decision` with a `Decision Mismatch` flag, and where the two
+   differ a human should look.
 
-Quality dimensions (Evidence Base, Breadth, Uncertainty & Bias, Transparency) are scored 0–2 and deliberately do **not** affect inclusion.
+Quality dimensions (Evidence Base, Breadth, Uncertainty & Bias, Transparency) are
+scored 0 to 2 and deliberately do **not** affect inclusion.
 
 ---
 
 ## Files
 
-|                                               |                                                                                   |
-| --------------------------------------------- | --------------------------------------------------------------------------------- |
-| `full-screen.py`                            | Main entry point: full-text screening.                                            |
-| `analyze.py`                                | Summarise a run — decisions, criterion verdicts, rows needing review.            |
-| `compare_runs.py`                           | Compare two runs over the same papers (model or rubric changes).                  |
-| `make_stress_set.py`                        | Pick the papers most likely to be excluded, to test the rubric where it can fail. |
-| `pgscreen/criteria.py`                      | The five criteria, verbatim from the protocol.                                    |
-| `pgscreen/rubric.py`                        | Guidance, quality dimensions, schema, decision rule.                              |
-| `pgscreen/providers.py`                     | Anthropic (native PDF) and OpenAI-compatible backends.                            |
-| `pgscreen/pipeline.py`                      | Concurrency, resume, CSV output.                                                  |
-| `pgscreen/models.py`                        | Model registry, pricing, cost estimation.                                         |
+|                        |                                                                                   |
+| ---------------------- | --------------------------------------------------------------------------------- |
+| `full-screen.py`       | Main entry point: full-text screening.                                            |
+| `analyze.py`           | Summarise a run: decisions, criterion verdicts, rows needing review.              |
+| `compare_runs.py`      | Compare two runs over the same papers, after a model or rubric change.            |
+| `make_stress_set.py`   | Pick the papers most likely to be excluded, to test the rubric where it can fail. |
+| `pgscreen/criteria.py` | The five criteria, verbatim from the protocol.                                    |
+| `pgscreen/rubric.py`   | Guidance, quality dimensions, schema, decision rule.                              |
+| `pgscreen/providers.py`| Anthropic (native PDF) and OpenAI-compatible backends.                            |
+| `pgscreen/pipeline.py` | Concurrency, resume, CSV output.                                                  |
+| `pgscreen/models.py`   | Model registry, pricing, cost estimation.                                         |
 
-### Another provider
+`--backend openai --base-url ...` works with OpenAI, OpenRouter, vLLM, Ollama, or
+a university gateway. That path extracts PDF text locally rather than sending the
+document, so the model sees no tables, figures, or layout. Treat a backend switch
+as a new run, not a continuation.
 
-`--backend openai --base-url ...` works with OpenAI, OpenRouter, vLLM, Ollama, or a university gateway. That path extracts PDF text locally rather than sending
-the document, so the model sees no tables, figures or layout — treat a backend switch as a new run, not a continuation.
+---
+
+## The run we reported
+
+**159 papers, rubric `2026-07-28.6`: 135 include (85%), 24 exclude (15%), 0 failed.**
+
+Discrimination concentrated where the rubric says it should:
+
+| publication type    |  n | excluded |
+| ------------------- | -: | -------: |
+| Review article      | 61 |       7% |
+| Perspective/Opinion | 34 |       9% |
+| Systematic review   | 24 |      12% |
+| **Research article**| **21** | **48%** |
+
+A sevenfold difference between research articles and reviews, and all ten
+research-article exclusions fell under criterion 5, the deletion-test clause doing
+the job it was written for. Criterion 5 accounts for 21 of the 24 exclusions,
+matching how the human abstract round used it (83 of 116).
+
+**The high include rate appears to be correct.** Composition explains most of it:
+this corpus is the Rayyan "Maybe" set, already filtered against the same five
+criteria (277 to 160), and 111 of 160 read as reviews or perspectives, which
+criterion 5 admits. The discriminating clause still fires. `make_stress_set.py`
+ranks the corpus by how much each paper reads like a single study, and on the
+hardest 6 both Sonnet and Opus excluded the same research article on criterion 5,
+agreeing on 5 of 5 decisions and 25 of 25 verdicts, so model choice is not
+confounding it. Re-run that script after any rubric change, since a random sample
+here mostly asks questions the instrument gets right by construction.
+
+### Human verification
+
+| reviewed                          |               n | confirmed |
+| --------------------------------- | --------------: | --------: |
+| Every exclusion, whole population  |              24 |    **24** |
+| Random sample of inclusions        |       60 of 135 |    **60** |
+| **Total**                          | **84 of 159 (53%)** | **84 (100%)** |
+
+The two halves are not equally strong evidence. Exclusion precision is
+established outright, since all 24 were reviewed with no sampling uncertainty at
+all, and none was wrongly excluded. Inclusion is a sample: zero errors in 60
+draws from a population of 135 puts the one-sided 95% bound at most 5 wrongly
+included papers, about 3.7%, with the finite-population correction mattering
+because 44% of the group was inspected. The costly direction in screening is
+wrongly excluding a relevant paper, and that side is verified exhaustively.
+
+### Three things checked by hand
+
+1. **One row was screened by Haiku 4.5**, because Sonnet 5 and Opus 5 both refused
+   it, a safety-classifier false positive on a clean Frontiers in Physiology
+   paper. Haiku returned `include` and a human confirmed it. That row came from a
+   different model than the other 158.
+2. **`unclear` never fired**, 0 of 795 criterion assessments. Either full text
+   settles every question, or the model resolves ambiguity instead of flagging it.
+   Real hesitation does show up in `Screening Notes`, so there is no automatic
+   borderline queue and the notes serve instead.
+3. **27 of 39 screening notes are noise** ("the PDF matches the bibliographic
+   record") despite the schema asking for an empty string when there is nothing to
+   report. The other 12 are valuable: a workshop call-for-papers mis-filed as an
+   article, a meeting abstract, a paper whose PDF header claims "Research Article"
+   but whose content is not one.
+
+### Why validation took this shape
+
+No pre-built control set was possible. Earlier screening collections each
+encoded a superseded round, and the only other human ground truth, the Rayyan
+title and abstract export, has PDFs for 1 of its 117 excluded papers, so it
+cannot be replayed at full text. It is not distributed here. Hence the stratified
+review of the real run, which gives agreement in both directions and doubles as
+the quality-control pass the review needed anyway.
+
+An earlier title and abstract validation arm was built and removed: it measured
+93% sensitivity over 271 records, but its specificity was an artifact of
+abstract-mode instructions reading silence as *unclear*, correct for full text
+and wrong for abstracts. Its lasting value, the mapping from Rayyan's "Criterion
+N" exclusions to the protocol text, survives in `pgscreen/criteria.py`.
 
 ---
 
 ## How the corpus of PDFs was assembled
 
-This section is a record of what we did, not a procedure to follow. The
-screening needs a local PDF per paper, and obtaining 159 of them took enough
-detours that the route is worth stating. Anyone screening a different corpus
-supplies their own PDFs and can skip to the next section.
-
-All 159 screened papers ended up with a resolvable PDF.
+A record of what we did, not a procedure to follow. Anyone screening a different
+corpus supplies their own PDFs and needs none of this.
 
 Zotero's "Find Available PDF" was the tool that worked, because it reaches
-paywalled content through institutional subscriptions where Unpaywall cannot.
-It did not fire on the collection as it stood. All 160 items already carried an
+paywalled content through institutional subscriptions where Unpaywall cannot. It
+did not fire on the collection as it stood: all 160 items already carried an
 attachment *record* pointing at a file that had never been downloaded, with
-`storageHash` NULL on every one, so Zotero concluded there was nothing to
-fetch. A multi-item selection reported "No files found" and the menu entry
-disappeared on single items.
+`storageHash` NULL on every one, so Zotero concluded there was nothing to fetch.
 
-Clearing that took four steps:
+After backing up `zotero.sqlite` we trashed those phantom records with a
+throwaway script, 140 of 160, keeping the 20 that had a real file. Running Find
+Available PDF on the university network then took the collection from 20
+resolvable PDFs to 111, access being granted by IP, and repeated passes plus
+manual downloading closed the rest. The collection sat in a shared project group
+library, so the trashing propagated to collaborators.
 
-1. We backed up `zotero.sqlite`.
-2. We trashed the phantom attachment records, so Zotero would stop treating the
-   files as present. This ran as a throwaway script in Tools → Developer → Run
-   JavaScript: walk the collection, count the items whose attachment has a NULL
-   `storageHash`, then trash exactly those. The audit pass reported **160 items,
-   20 attachments with a file, 140 phantom**, and the second pass trashed the
-   140. The script was not kept.
-3. On the university network, we ran the collection through Find Available PDF.
-   Access is granted by IP, so the same run off-network returns open access
-   only.
-4. We re-exported the collection, since the File Attachments paths had changed.
-
-The collection sat in a shared project group library, so trashing those records
-propagated to collaborators. That pass took the collection from 20 resolvable
-PDFs to 111, and repeated passes plus manual downloading closed the rest.
-
-Two findings are worth recording, because both cost time:
-
-- **Scripted open-access fetching did not work for this corpus.** A DOI to
-  Unpaywall to download tool retrieved 1 of 49. Some papers are not open access
-  at all, and the hosts holding the rest (NCBI/PMC, MDPI, DOAJ, ScienceDirect)
-  block scripted retrieval as policy, including through NCBI's own sanctioned
-  OA Web Service, since most of these articles are not in the PMC Open Access
-  Subset even where Unpaywall reports them as open. We deleted the tool rather
-  than leave it as a trap.
-- **A browser on the university network was the route that worked.** Opening
-  the article and using the Zotero Connector carries the session.
+Two findings cost enough time to record. **Scripted open-access fetching did not
+work for this corpus:** a DOI to Unpaywall to download tool retrieved 1 of 49,
+since many hosts (NCBI/PMC, MDPI, DOAJ, ScienceDirect) block scripted retrieval
+as policy and most of these articles are not in the PMC Open Access Subset even
+where Unpaywall reports them as open. **A browser on the university network was
+the route that worked:** opening the article and using the Zotero Connector
+carries the session.
 
 A semicolon inside a paper's title also broke attachment-path parsing, since
-Zotero separates multiple attachments with `;`. `pipeline.first_attachment()`
-now tries the whole string before splitting.
+Zotero separates multiple attachments with `;`. `pipeline.first_attachment()` now
+tries the whole string before splitting.
 
-### Result of the full run (159 papers, rubric 2026-07-28.6)
+---
 
-**135 include (85%), 24 exclude (15%), 0 failed.**
+## License
 
-The discrimination is concentrated exactly where the rubric says it should be:
-
-| publication type           |            n |      excluded |
-| -------------------------- | -----------: | ------------: |
-| Review article             |           61 |            7% |
-| Perspective/Opinion        |           34 |            9% |
-| Systematic review          |           24 |           12% |
-| **Research article** | **21** | **48%** |
-
-A seven-fold difference between research articles and reviews, and **all ten
-research-article exclusions were criterion 5** — the deletion-test clause doing
-precisely the job it was written for. Criterion 5 accounts for 21 of the 24
-exclusions overall, matching how the human abstract round used it (83 of 116
-exclusions).
-
-Earlier samples returning almost nothing but includes were a sampling artifact:
-both happened to contain zero research articles.
-
-### The include rate is high, and that appears to be correct
-
-Screening returns mostly includes. That was the original complaint about the
-previous instrument, so it was tested directly rather than argued about.
-
-**Composition explains most of it.** This corpus is the Rayyan "Maybe" set,
-already filtered against these same five criteria (277 → 160). 111 of 160 read
-as reviews or perspectives — which criterion 5 explicitly admits — and only 9
-carry single-study wording. A low exclusion rate is what agreement looks like
-here.
-
-**The discriminating clause does fire.** `make_stress_set.py` ranks the corpus
-by how much each paper reads like a single study; the top 6 were screened on
-both Sonnet and Opus. Both excluded the one research article on criterion 5,
-both citing the deletion test by name and identifying the same failure mode
-(*"broader framing is confined to a related-work critique motivating the
-authors' own design"*).
-
-**Model choice is not confounding it.** On that same adversarial set, Sonnet and
-Opus agreed on **5/5 decisions and 25/25 criterion verdicts**, at 1.8× the cost
-for Opus. A cheaper model is not reading the rubric more liberally — and the one
-failure mode observed in Haiku was over-*exclusion* (rejecting papers about
-modelling on criterion 2), never over-inclusion.
-
-Re-run `make_stress_set.py` after any rubric change: a random sample of this
-corpus mostly asks questions the instrument gets right by construction.
-
-### Human verification of the run
-
-A stratified review was carried out on the completed run:
-
-| reviewed                                                      |                         n |           confirmed |
-| ------------------------------------------------------------- | ------------------------: | ------------------: |
-| **Every exclusion** (complete population, not a sample) |                        24 |        **24** |
-| Random sample of inclusions                                   |                 60 of 135 |        **60** |
-| **Total**                                               | **84 of 159 (53%)** | **84 (100%)** |
-
-The two halves are not equally strong evidence, and a methods section should say
-so:
-
-- **Exclusion precision is established outright.** All 24 exclusions were
-  reviewed — the entire population, so there is no sampling uncertainty at all.
-  The instrument did not wrongly exclude a single paper.
-- **Inclusion is a sample, but a substantial one.** 60 of 135 checked, all
-  confirmed. With zero errors in 60 draws from a population of 135, the
-  one-sided 95% bound is **at most 5 wrongly-included papers (~3.7%)** — the
-  finite-population correction matters here, since 44% of the group was
-  inspected.
-
-The costly direction in screening is wrongly *excluding* a relevant paper, and
-that side is verified exhaustively.
-
-Suggested wording: *"All 24 automated exclusions were independently verified by a
-human reviewer and all were confirmed. A random sample of 60 of 135 automated
-inclusions (44%) was verified, all confirmed. Agreement was 84/84 (100%) across
-53% of the screened corpus."*
-
-### Three things checked by hand
-
-1. **One row was screened by Haiku 4.5** (`Aerosol Transport Modeling…`), because
-   both Sonnet 5 and Opus 5 refused it — a safety-classifier false positive on a
-   clean Frontiers in Physiology paper. Haiku returned `include`; a human
-   confirmed it. Worth recording in the methods, since that row was produced by
-   a different model from the other 158.
-2. **`unclear` never fired** — 0 of 795 criterion assessments. Either full text
-   genuinely settles every question, or the model resolves ambiguity instead of
-   flagging it. It does record real hesitation in `Screening Notes` ("criterion
-   5 is a closer call than the others"), so the hedging goes there rather than
-   into the verdict. Consequence: there is no automatic borderline queue — use
-   the notes instead.
-3. **27 of 39 screening notes are noise** ("the PDF matches the bibliographic
-   record") despite the schema asking for an empty string when there is nothing
-   to report. The other 12 are genuinely valuable — a workshop call-for-papers
-   mis-filed as an article, a meeting abstract, a paper whose PDF header says
-   "Research Article" but whose content is not one.
-
-### Why validation took the shape it did
-
-No pre-built control set was possible, for structural reasons worth recording:
-
-- Every Zotero collection carrying prior screening decisions had been retired to
-  a deprecated area of the library, each encoding a superseded round. Controls
-  built from them were discarded after the fact.
-- The only other human ground truth was the Rayyan title and abstract export.
-  Its 117 excluded papers have PDFs for 1 of 117, so it cannot be replayed at
-  full text. It is not distributed with this repository.
-
-Hence the stratified review of the real run, above: it produces agreement in
-both directions, concentrates reading effort on the informative cases, and
-doubles as the quality-control pass the review needs anyway.
-
-An earlier title/abstract validation arm was built and removed. It measured 93%
-sensitivity over 271 records, but its specificity figure was an artifact of
-abstract-mode instructions that deliberately read silence as *unclear* — correct
-for full text, wrong for abstracts. Its lasting value, the mapping from Rayyan's
-"Criterion N" exclusions to the protocol text, is preserved in
-`pgscreen/criteria.py`.
+MIT, see [LICENSE](LICENSE).
