@@ -109,56 +109,56 @@ the document, so the model sees no tables, figures or layout — treat a backend
 
 ---
 
-## Getting the PDFs — done
+## How the corpus of PDFs was assembled
 
-**All 159 papers have a resolvable PDF.** Kept here because the same trap will reappear if the collection is ever repopulated.
+This section is a record of what we did, not a procedure to follow. The
+screening needs a local PDF per paper, and obtaining 159 of them took enough
+detours that the route is worth stating. Anyone screening a different corpus
+supplies their own PDFs and can skip to the next section.
 
-Zotero's "Find Available PDF" is the right tool — it reaches paywalled content
-through your institutional subscriptions, which Unpaywall cannot — but it will
-not fire on this collection as-is. All 160 items already have an attachment
-*record* pointing at a file that was never downloaded (`storageHash` is NULL for
-all of them), so Zotero concludes there is nothing to fetch: a multi-item
-selection reports "No files found" and the menu entry disappears on single
-items.
+All 159 screened papers ended up with a resolvable PDF.
 
-To unblock it:
+Zotero's "Find Available PDF" was the tool that worked, because it reaches
+paywalled content through institutional subscriptions where Unpaywall cannot.
+It did not fire on the collection as it stood. All 160 items already carried an
+attachment *record* pointing at a file that had never been downloaded, with
+`storageHash` NULL on every one, so Zotero concluded there was nothing to
+fetch. A multi-item selection reported "No files found" and the menu entry
+disappeared on single items.
 
-1. Back up `%USERPROFILE%\Zotero\zotero.sqlite`.
-2. Move the phantom attachment records to the trash, so Zotero stops believing
-   the files are already there. We did this with a throwaway script in
-   Tools → Developer → Run JavaScript: walk the collection's items, count those
-   whose attachment has a NULL `storageHash`, and trash exactly those. The audit
-   pass reported **160 items, 20 attachments with a file, 140 phantom**, and the
-   second pass trashed the 140. The script itself was not kept, so anyone
-   repeating this writes their own. Audit first and check the counts before
-   trashing anything.
-3. **Connect to the university network or VPN**, then select the collection →
-   right-click → Find Available PDF. Access is decided by your IP, so doing this
-   off-network gets open access only and wastes the run.
-4. Re-export the collection to `data/articles-full-screen.csv` — the
-   File Attachments paths will have changed.
+Clearing that took four steps:
 
-Note that `full screen` is in the **group** library `infoXpandUZL`, so trashing
-those records syncs to collaborators.
+1. We backed up `zotero.sqlite`.
+2. We trashed the phantom attachment records, so Zotero would stop treating the
+   files as present. This ran as a throwaway script in Tools → Developer → Run
+   JavaScript: walk the collection, count the items whose attachment has a NULL
+   `storageHash`, then trash exactly those. The audit pass reported **160 items,
+   20 attachments with a file, 140 phantom**, and the second pass trashed the
+   140. The script was not kept.
+3. On the university network, we ran the collection through Find Available PDF.
+   Access is granted by IP, so the same run off-network returns open access
+   only.
+4. We re-exported the collection, since the File Attachments paths had changed.
 
-That took the collection from 20 to 111 in one pass; repeated passes and manual
-downloading closed the rest.
+The collection sat in a shared project group library, so trashing those records
+propagated to collaborators. That pass took the collection from 20 resolvable
+PDFs to 111, and repeated passes plus manual downloading closed the rest.
 
-Two things worth recording, because both cost time:
+Two findings are worth recording, because both cost time:
 
-- **Scripted open-access fetching does not work for this corpus.** A DOI →
-  Unpaywall → download tool retrieved 1 of 49. Some papers are not open access
+- **Scripted open-access fetching did not work for this corpus.** A DOI to
+  Unpaywall to download tool retrieved 1 of 49. Some papers are not open access
   at all, and the hosts holding the rest (NCBI/PMC, MDPI, DOAJ, ScienceDirect)
-  block scripted retrieval as policy — including through NCBI's own sanctioned
+  block scripted retrieval as policy, including through NCBI's own sanctioned
   OA Web Service, since most of these articles are not in the PMC Open Access
-  Subset even where Unpaywall reports them as open. The tool was deleted rather
-  than left as a trap.
-- **The browser on the university network is the route that works.** Open the
-  article and use the Zotero Connector, which carries your session.
+  Subset even where Unpaywall reports them as open. We deleted the tool rather
+  than leave it as a trap.
+- **A browser on the university network was the route that worked.** Opening
+  the article and using the Zotero Connector carries the session.
 
-A semicolon inside a paper's title also broke attachment-path parsing (Zotero
-separates multiple attachments with `;`). `pipeline.first_attachment()` now
-tries the whole string before splitting.
+A semicolon inside a paper's title also broke attachment-path parsing, since
+Zotero separates multiple attachments with `;`. `pipeline.first_attachment()`
+now tries the whole string before splitting.
 
 ### Result of the full run (159 papers, rubric 2026-07-28.6)
 
@@ -262,12 +262,12 @@ inclusions (44%) was verified, all confirmed. Agreement was 84/84 (100%) across
 
 No pre-built control set was possible, for structural reasons worth recording:
 
-- Every Zotero collection carrying prior screening decisions (`1.`, `2.`, `3.x`,
-  `4.`, `5.`) sits under `_deprecated` and encodes a superseded round. Controls
+- Every Zotero collection carrying prior screening decisions had been retired to
+  a deprecated area of the library, each encoding a superseded round. Controls
   built from them were discarded after the fact.
-- The only other human ground truth is `rayyan-screened-export.csv`, which is
-  *title/abstract* stage. Its 117 excluded papers have PDFs for 1 of 117, so it
-  cannot be replayed at full text.
+- The only other human ground truth was the Rayyan title and abstract export.
+  Its 117 excluded papers have PDFs for 1 of 117, so it cannot be replayed at
+  full text. It is not distributed with this repository.
 
 Hence the stratified review of the real run, above: it produces agreement in
 both directions, concentrates reading effort on the informative cases, and
