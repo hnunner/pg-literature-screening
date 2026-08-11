@@ -96,7 +96,6 @@ Quality dimensions (Evidence Base, Breadth, Uncertainty & Bias, Transparency) ar
 | `analyze.py`                                | Summarise a run — decisions, criterion verdicts, rows needing review.            |
 | `compare_runs.py`                           | Compare two runs over the same papers (model or rubric changes).                  |
 | `make_stress_set.py`                        | Pick the papers most likely to be excluded, to test the rubric where it can fail. |
-| `tools/zotero-clear-phantom-attachments.js` | Unblock Zotero's "Find Available PDF" (kept as a record of what was done).        |
 | `pgscreen/criteria.py`                      | The five criteria, verbatim from the protocol.                                    |
 | `pgscreen/rubric.py`                        | Guidance, quality dimensions, schema, decision rule.                              |
 | `pgscreen/providers.py`                     | Anthropic (native PDF) and OpenAI-compatible backends.                            |
@@ -125,10 +124,14 @@ items.
 To unblock it:
 
 1. Back up `%USERPROFILE%\Zotero\zotero.sqlite`.
-2. Run `tools/zotero-clear-phantom-attachments.js` in Zotero
-   (Tools → Developer → Run JavaScript). Step 1 audits and should report
-   **160 items, 20 attachments with a file, 140 phantom**. Step 2 moves the 140
-   empty records to the trash.
+2. Move the phantom attachment records to the trash, so Zotero stops believing
+   the files are already there. We did this with a throwaway script in
+   Tools → Developer → Run JavaScript: walk the collection's items, count those
+   whose attachment has a NULL `storageHash`, and trash exactly those. The audit
+   pass reported **160 items, 20 attachments with a file, 140 phantom**, and the
+   second pass trashed the 140. The script itself was not kept, so anyone
+   repeating this writes their own. Audit first and check the counts before
+   trashing anything.
 3. **Connect to the university network or VPN**, then select the collection →
    right-click → Find Available PDF. Access is decided by your IP, so doing this
    off-network gets open access only and wastes the run.
