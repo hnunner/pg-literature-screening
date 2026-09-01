@@ -10,7 +10,7 @@ borderline papers come back `uncertain` rather than being forced.
 the paper, plus a record of how that screening went. It is not a way to
 reproduce our run. That run is non-deterministic, and it needs local PDFs for
 159 mostly paywalled papers we cannot redistribute. The screening output of
-record is in the data deposit, DOI `TODO`.
+record is in the data deposit, [10.5281/zenodo.22232256](https://doi.org/10.5281/zenodo.22232256).
 
 Two things you can do here. Read `pgscreen/criteria.py` and `pgscreen/rubric.py`
 to see exactly what the model was asked and how a decision follows from its
